@@ -1,3 +1,4 @@
+#! /u/sjspall/ChezScheme/bin/scheme --script
 #|
   seeing how chez scheme threads perform when just running a thunk. 
   pretend future system.  
@@ -6,6 +7,7 @@
 |#
 (include "deque.ss")
 
+(define die? #f)
 (define run-count #f)
 (define work-done (box 0))
 (define main-thread-cond (make-condition))
@@ -19,21 +21,21 @@
             (increment-work-done))))
 
 (define (terminate)
-  (let ([curr (unbox run-count)])
-    (if (box-cas! run-count curr (- curr 1))
-        (begin (printf "decremented run-count")
-          (when (= 0 (- curr 1)) ;; last thread to terminate
-            (with-mutex main-thread-mutex
-                        (condition-signal main-thread-cond))
-            (with-mutex worker-mutex
-                        (condition-wait worker-cond worker-mutex))))
-        (terminate))))
+  (define curr (unbox run-count))
+  (cond
+   [(box-cas! run-count curr (- curr 1))
+    (when (= 0 (- curr 1)) ;; last thread to terminate
+	  (with-mutex main-thread-mutex
+		      (condition-signal main-thread-cond)))
+    (with-mutex worker-mutex
+		(condition-wait worker-cond worker-mutex))]
+   [else
+    (terminate)]))
 
 (define (unterminate)
-  (let ([curr (unbox run-count)])
-    (unless (box-cas! run-count curr (+ curr 1))
-            (unterminate))
-    (printf "incremented run-count")))
+  (define curr (unbox run-count))
+  (unless (box-cas! run-count curr (+ curr 1))
+	  (unterminate)))
 
 (define work-queue (make-q))
 
@@ -53,12 +55,12 @@
      [(eq? w 'Abort)
       (loop c)]
      [(eq? w 'Empty)
-      (printf "Worker terminating\n")
       (terminate)
-      (unterminate)
-      (loop c)] ;; awoken because more work
+      (unless die?
+	      (unterminate)
+	      (loop c))
+      (printf "Worker actually dying\n")]
      [else
-      ;(printf "worker ~a doing work ~a\n" (get-thread-id) c)
       (do-work w)
       (increment-work-done)
       (loop (+ 1 c))])))
@@ -68,22 +70,29 @@
 
 ;; on tcount pthreads thunk n times. 
 (define (driver tcount n thunk)
+  (set! die? #f)
   (launch tcount)
+  
   
   (let loop ([nt n])
     (cond
      [(= 0 nt)
-      (with-mutex main-thread-mutex
-                  (if (= 0 (unbox run-count))
-                      (printf "Done!\n")
-                      (begin (printf "Main thread going to sleep; work done so far ~a\n" (unbox work-done))
-                        (condition-wait main-thread-cond main-thread-mutex)
+      (mutex-acquire main-thread-mutex)
+      (if (= 0 (unbox run-count))
+	  (printf "Done!\n")
+	  (begin (printf "Main thread going to sleep; work done so far ~a\n" (unbox work-done))
+		 (condition-wait main-thread-cond main-thread-mutex)
+		 (mutex-release main-thread-mutex)
+		 (set! die? #t)
+		 (with-mutex worker-mutex
+			     (condition-broadcast worker-cond)
                              (printf "Done!\n"))))]
      [else
       (add-thunk thunk)
-      (with-mutex worker-mutex
-       (when (< (unbox run-count) tcount) ;; some worker(s) went to sleep
-             (condition-broadcast worker-cond)))
+      (when (< (unbox run-count) tcount) ;; some worker(s) went to sleep
+             (with-mutex worker-mutex
+			 ;(printf "waking up workers\n")
+			 (condition-broadcast worker-cond)))
       (loop (- nt 1))])))
 
 (define work (lambda ()
@@ -95,9 +104,33 @@
                    1]
                   [else
                    (+ (loop (- n 1))
-                      (loop (- n 2)))]))))
-               
-(time (driver 2 50000 work))
+                      (loop (- n 2)))]))))      
+
+(let ([args (cdr (command-line))])
+  (cond
+   [(null? args)
+    (errorf 'thread-tests "Expected --thread-count and --number-thunks")]
+   [else
+    (let-values ([(tcount args)
+		  (if (equal? (car args) "--thread-count")
+		      (values (string->number (cadr args))
+			      (cddr args))
+		      (errorf 'thread-test "Expected --thread-count"))])
+      (let-values ([(nthunks args)
+		    (if (equal? (car args) "--number-thunks")
+			(values (string->number (cadr args))
+				(cddr args))
+			(errorf 'thread-tests"Expected --number-thunks"))])
+	(time (driver tcount nthunks work))))]))
+
+
+
+;(time (driver 1 5000 work))
+
+;(time (driver 2 5000 work))
+
+;(time (driver 4 5000 work))
+;(time (driver 8 5000 work))
 
 ;(time (driver 3 50000 work))
 
