@@ -65,6 +65,7 @@ System 5. ....
     [else
      (+ 2 (nfc (- n 1)) (nfc (- n 2)))]))
 
+#|
 (define-values (MAX file version)
   (command-line
    #:program "Fibonacci"
@@ -81,11 +82,35 @@ System 5. ....
     (let ([nf (nfc i)])
       (displayln (format "~a ~a ~a ~a ~a ~a" (string-append version "seq") i nf scpu sreal sgc) rfile)
       (displayln (format "~a ~a ~a ~a ~a ~a" (string-append version "par") i nf pcpu preal pgc) rfile))))
+|#
+
+(define NUM-RUNS 5)
+(define FIB-SIZE 30)
+(define-values (raccu gcaccu) 
+	       (let loop ([i NUM-RUNS])
+	       (printf "I is: ~a\n" i)
+	            (cond
+		     [(<= i 0)
+		      (values 0 0)]
+		     [else
+		      (let-values ([(_ cpu real gc) (time-apply (lambda () 
+       		     		    	  	     (touch (future (lambda () (par-fib FIB-SIZE)))))
+				  		      '())]
+				   [(raccu gcaccu) (loop (- i 1))])
+				   
+			(values (+ raccu real) (+ gcaccu gc)))])))
+			
+(define avg-real (exact->inexact (/ (/ raccu NUM-RUNS) 1000)))
+(define avg-gc (exact->inexact (/ (/ gcaccu NUM-RUNS) 1000)))
+
+(printf "For fib size of ~a\n Average real time (sec): ~a\n Average gc time (sec): ~a\n" FIB-SIZE avg-real avg-gc)
 
   
-              
-    
-    
+  
+#;(time (let ([f (future (lambda () (par-fib 30)))])
+      	   (touch f)))            
+(sleep 1)    
+(printf "Number of futures launched: ~a\n" (nfc FIB-SIZE))    
          
 
 
