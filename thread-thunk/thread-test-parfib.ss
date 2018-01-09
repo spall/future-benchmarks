@@ -209,7 +209,7 @@
 
 (printf "Result: ~a\n" (par-fib 2))
 
-(time (driver 4 (lambda () (par-fib 30))))
+(time (driver 6 (lambda () (par-fib 30))))
 
 #;(let ([args (cdr (command-line))])
   (cond
