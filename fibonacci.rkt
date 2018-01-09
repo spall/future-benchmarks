@@ -1,5 +1,7 @@
 #lang racket/base
 
+#;(require (only-in '#%kernel disable-interrupts
+                  enable-interrupts))
 (require racket/future
          racket/cmdline)
 
@@ -65,6 +67,7 @@ System 5. ....
     [else
      (+ 2 (nfc (- n 1)) (nfc (- n 2)))]))
 
+#|
 (define-values (MAX file version)
   (command-line
    #:program "Fibonacci"
@@ -74,14 +77,24 @@ System 5. ....
 (define rfile (open-output-file file #:exists 'append))
 
 (for ([i (in-range 1 (+ 1 MAX))])
+  #;(disable-interrupts)
   (let-values ([(_ scpu sreal sgc) (time-apply sequential-fib (list i))]
                [(__ pcpu preal pgc) (time-apply par-fib (list i))])
     ;; write these to file.
     ;; type i #-of-futures cpu real gc
+    ;(sleep ) ;; so threads will sleep.
     (let ([nf (nfc i)])
-      (displayln (format "~a ~a ~a ~a ~a ~a" (string-append version "seq") i nf scpu sreal sgc) rfile)
-      (displayln (format "~a ~a ~a ~a ~a ~a" (string-append version "par") i nf pcpu preal pgc) rfile))))
+      (displayln (format "~a ~a ~a ~a ~a ~a" (string-append version "seq") i 0 scpu sreal sgc) rfile)
+      (displayln (format "~a ~a ~a ~a ~a ~a" (string-append version "par") i nf pcpu preal pgc) rfile))
+    ;(enable-interrupts)
+    #;(collect-garbage)
+    (printf "After n = ~a\n" i)
+    (dump-memory-stats)))
+|#
 
+(time
+ (let ([f (future (lambda () (par-fib 29)))])
+   (touch f)))
   
               
     
